@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,6 +9,7 @@ namespace Andoromeda.Socket.IO.Client
     {
         private readonly IHttpClientFactory _httpClientFactory;
 
+        public SocketIOClient(string baseUrl) : this(baseUrl, new DefaultHttpClientFactory()) { }
         public SocketIOClient(string baseUrl, IHttpClientFactory httpClientFactory)
         {
             _httpClientFactory = httpClientFactory;
@@ -32,14 +33,12 @@ namespace Andoromeda.Socket.IO.Client
         }
         #endregion
 
+        public ValueTask ConnectAsync() => ConnectAsync(null);
         public async ValueTask ConnectAsync(ConnectionOptions options)
         {
-            if (options is null)
-                throw new ArgumentNullException(nameof(options));
-
             var httpClient = _httpClientFactory.Create();
 
-            if (!options.NoLongPollingConnection)
+            if (options is null || !options.NoLongPollingConnection)
                 await EstablishNormally(httpClient);
             else
                 await EstablishWebsocketConnectionDirectly(httpClient);
