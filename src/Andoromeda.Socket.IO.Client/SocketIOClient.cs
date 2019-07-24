@@ -1,8 +1,11 @@
 ﻿using System;
 using System.Buffers.Text;
 using System.Collections.Generic;
+using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Net.WebSockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -70,9 +73,33 @@ namespace Andoromeda.Socket.IO.Client
             builder.Scheme = "ws";
             builder.Query = "EIO=3&transport=websocket&sid=" + info.SocketId;
         }
-        private ValueTask EstablishWebsocketConnectionDirectly(HttpClient httpClient)
+        private async ValueTask EstablishWebsocketConnectionDirectly(HttpClient httpClient)
         {
-            throw new NotImplementedException();
+            var builder = new UriBuilder(_baseUrl)
+            {
+                Path = "/socket.io/",
+                Query = "EIO=3&transport=websocket",
+            };
+
+            using (var request = new HttpRequestMessage(HttpMethod.Get, builder.Uri))
+            {
+                var (key, expectedAccept) = GenerateWebsocketKeyAndExpectedHash();
+
+                request.Headers.Add("Connection", "Upgrade");
+                request.Headers.Add("Upgrade", "websocket");
+                request.Headers.Add("Sec-Websocket-Version", "13");
+                request.Headers.Add("Sec-Websocket-Key", key);
+                request.Headers.Add("Sec-Websocket-Extensions", "permessage-deflate; client_max_window_bits");
+
+                using var response = await httpClient.SendAsync(request);
+
+                if (response.StatusCode != HttpStatusCode.SwitchingProtocols)
+                    throw new InvalidOperationException();
+
+                var accept = response.Headers.GetValues("Sec-Websocket-Accept").SingleOrDefault();
+                if (accept != expectedAccept)
+                    throw new InvalidOperationException();
+            }
         }
 
         private static ConnectionInfo ParseConnectionInfo(ReadOnlySpan<byte> content)
@@ -211,5 +238,37 @@ namespace Andoromeda.Socket.IO.Client
             }
         }
         static void ThrowParseException() => throw new InvalidOperationException();
+
+        static (string, string) GenerateWebsocketKeyAndExpectedHash()
+        {
+            var guid = Guid.NewGuid();
+
+#if NETSTANDARD2_1
+            Span<byte> buffer = stackalloc byte[16];
+            guid.TryWriteBytes(buffer);
+
+            var key = Convert.ToBase64String(buffer);
+#else
+            var key = Convert.ToBase64String(guid.ToByteArray());
+#endif
+
+            // GUID source: https://tools.ietf.org/html/rfc6455
+            var contentToHash = key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+
+            using var sha1 = SHA1.Create();
+#if NETSTANDARD2_1
+            Span<byte> contentBuffer = stackalloc byte[Encoding.UTF8.GetByteCount(contentToHash)];
+            Encoding.UTF8.GetBytes(contentToHash, contentBuffer);
+
+            buffer = stackalloc byte[20];
+            sha1.TryComputeHash(contentBuffer, buffer, out _);
+            var hash = Convert.ToBase64String(buffer);
+#else
+            var hashBytes = sha1.ComputeHash(Encoding.UTF8.GetBytes(contentToHash));
+            var hash = Convert.ToBase64String(hashBytes);
+#endif
+
+            return (key, hash);
+        }
     }
 }
