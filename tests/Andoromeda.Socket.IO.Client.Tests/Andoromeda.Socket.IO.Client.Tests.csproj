@@ -1,0 +1,7 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="$(BasePath)src\Andoromeda.Socket.IO.Client\Andoromeda.Socket.IO.Client.csproj" />
+  </ItemGroup>
+
+</Project>
