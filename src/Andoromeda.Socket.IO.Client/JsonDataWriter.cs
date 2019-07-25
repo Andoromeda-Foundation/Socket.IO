@@ -54,12 +54,12 @@ namespace Andoromeda.Socket.IO.Client
 #if NETSTANDARD2_1
             var buffer = _buffer.AsMemory();
 #else
-                var buffer = new ArraySegment<byte>(_buffer);
+             var buffer = new ArraySegment<byte>(_buffer);
 #endif
 
             do
             {
-                await _socket.SendAsync(buffer, WebSocketMessageType.Text, false, default);
+                await _socket.SendAsync(buffer, WebSocketMessageType.Text, false, default).ConfigureAwait(false);
 
                 _offset = Encoding.UTF8.GetBytes(value, offset, Math.Min(value.Length - offset, charCount), _buffer, 0);
                 offset += charCount;
@@ -70,9 +70,9 @@ namespace Andoromeda.Socket.IO.Client
         async Task SendAndAppend(char value)
         {
 #if NETSTANDARD2_1
-            await _socket.SendAsync(_buffer.AsMemory(), WebSocketMessageType.Text, false, default);
+            await _socket.SendAsync(_buffer.AsMemory(), WebSocketMessageType.Text, false, default).ConfigureAwait(false);
 #else
-                await _socket.SendAsync(new ArraySegment<byte>(_buffer), WebSocketMessageType.Text, false, default);
+            await _socket.SendAsync(new ArraySegment<byte>(_buffer), WebSocketMessageType.Text, false, default).ConfigureAwait(false);
 #endif
 
             _offset = 0;
@@ -81,9 +81,9 @@ namespace Andoromeda.Socket.IO.Client
 
         public override Task FlushAsync() =>
 #if NETSTANDARD2_1
-                _socket.SendAsync(_buffer.AsMemory(0, _offset), WebSocketMessageType.Text, true, default).AsTask();
+            _socket.SendAsync(_buffer.AsMemory(0, _offset), WebSocketMessageType.Text, true, default).AsTask();
 #else
-                _socket.SendAsync(new ArraySegment<byte>(_buffer, 0, _offset), WebSocketMessageType.Text, true, default);
+            _socket.SendAsync(new ArraySegment<byte>(_buffer, 0, _offset), WebSocketMessageType.Text, true, default);
 #endif
     }
 }

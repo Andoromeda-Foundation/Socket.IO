@@ -57,9 +57,9 @@ namespace Andoromeda.Socket.IO.Client
             var httpClient = _httpClientFactory.Create();
 
             if (options is null || !options.NoLongPollingConnection)
-                await EstablishNormally(httpClient);
+                await EstablishNormally(httpClient).ConfigureAwait(false);
             else
-                await EstablishWebsocketConnectionDirectly(httpClient);
+                await EstablishWebsocketConnectionDirectly(httpClient).ConfigureAwait(false);
 
             IsConnected = true;
             Connected?.Invoke(this);
@@ -72,11 +72,11 @@ namespace Andoromeda.Socket.IO.Client
             builder.Query = "EIO=3&transport=polling&b64=1&t=" + DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
 
             ConnectionInfo info;
-            using (var response = await httpClient.GetAsync(builder.Uri))
+            using (var response = await httpClient.GetAsync(builder.Uri).ConfigureAwait(false))
             {
                 response.EnsureSuccessStatusCode();
 
-                info = ParseConnectionInfo(await response.Content.ReadAsByteArrayAsync());
+                info = ParseConnectionInfo(await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false));
             }
 
             if (!Array.Exists(info.Upgrades, r => r.Equals("websocket", StringComparison.OrdinalIgnoreCase)))
@@ -84,7 +84,7 @@ namespace Andoromeda.Socket.IO.Client
 
             builder.Scheme = "ws";
             builder.Query = "EIO=3&transport=websocket&sid=" + info.SocketId;
-            await EstablishWebsocketConnection(builder.Uri, info);
+            await EstablishWebsocketConnection(builder.Uri, info).ConfigureAwait(false);
 
             // Send [Ping]
 #if NETSTANDARD2_1
@@ -92,10 +92,10 @@ namespace Andoromeda.Socket.IO.Client
 #else
             var buffer = new ArraySegment<byte>(new[] { (byte)'2', (byte)'p', (byte)'r', (byte)'o', (byte)'b', (byte)'e' });
 #endif
-            await _socket.SendAsync(buffer, WebSocketMessageType.Text, true, default);
+            await _socket.SendAsync(buffer, WebSocketMessageType.Text, true, default).ConfigureAwait(false);
 
             // Receive [Pong]
-            await _socket.ReceiveAsync(buffer, default);
+            await _socket.ReceiveAsync(buffer, default).ConfigureAwait(false);
 
             static bool Is3Probe(ReadOnlySpan<byte> span) =>
                 span[0] == '3' && span[1] == 'p' && span[2] == 'r' && span[3] == 'o' && span[4] == 'b' && span[5] == 'e';
@@ -112,7 +112,7 @@ namespace Andoromeda.Socket.IO.Client
 #else
             buffer = new ArraySegment<byte>(new[] { (byte)'5' });
 #endif
-            await _socket.SendAsync(buffer, WebSocketMessageType.Text, true, default);
+            await _socket.SendAsync(buffer, WebSocketMessageType.Text, true, default).ConfigureAwait(false);
 
             static ConnectionInfo ParseConnectionInfo(ReadOnlySpan<byte> content)
             {
@@ -156,7 +156,7 @@ namespace Andoromeda.Socket.IO.Client
                 request.Headers.Add("Sec-Websocket-Key", key);
                 request.Headers.Add("Sec-Websocket-Extensions", "permessage-deflate; client_max_window_bits");
 
-                using var response = await httpClient.SendAsync(request);
+                using var response = await httpClient.SendAsync(request).ConfigureAwait(false);
 
                 if (response.StatusCode != HttpStatusCode.SwitchingProtocols)
                     throw new InvalidOperationException();
@@ -167,21 +167,21 @@ namespace Andoromeda.Socket.IO.Client
             }
 
             builder.Scheme = "ws";
-            await EstablishWebsocketConnection(builder.Uri, null);
+            await EstablishWebsocketConnection(builder.Uri, null).ConfigureAwait(false);
 
 #if NETSTANDARD2_1
             Memory<byte> buffer = new byte[256];
-            await _socket.ReceiveAsync(buffer, default);
+            await _socket.ReceiveAsync(buffer, default).ConfigureAwait(false);
 
             var info = ParseConnectionInfo(buffer.Span);
 #else
             var buffer = new ArraySegment<byte>(new byte[256]);
-            await _socket.ReceiveAsync(buffer, default);
+            await _socket.ReceiveAsync(buffer, default).ConfigureAwait(false);
 
             var info = ParseConnectionInfo(buffer);
 #endif
 
-            var result = await _socket.ReceiveAsync(buffer, default);
+            var result = await _socket.ReceiveAsync(buffer, default).ConfigureAwait(false);
             if (result.Count != 2)
                 throw new InvalidOperationException();
 
@@ -359,7 +359,7 @@ namespace Andoromeda.Socket.IO.Client
             if (!(info is null))
                 socket.Options.KeepAliveInterval = TimeSpan.FromMilliseconds(info.PingInterval);
 
-            await socket.ConnectAsync(uri, default);
+            await socket.ConnectAsync(uri, default).ConfigureAwait(false);
 
             _socket = socket;
         }
@@ -377,8 +377,8 @@ namespace Andoromeda.Socket.IO.Client
                 using var dataWriter = new JsonDataWriter(_socket, buffer);
                 using var jsonWriter = new JsonTextWriter(dataWriter) { Formatting = Formatting.None };
 
-                await array.WriteToAsync(jsonWriter);
-                await dataWriter.FlushAsync();
+                await array.WriteToAsync(jsonWriter).ConfigureAwait(false);
+                await dataWriter.FlushAsync().ConfigureAwait(false);
             }
             finally
             {
