@@ -16,15 +16,5 @@ namespace Andoromeda.Socket.IO.Client.Tests
 
             Assert.True(client.IsConnected);
         }
-
-        [Fact]
-        public static async Task WebsocketDirectlyTest()
-        {
-            using var client = new SocketIOClient("http://localhost:10000/", _httpClientFactory);
-
-            await client.ConnectAsync(new ConnectionOptions() { NoLongPollingConnection = true });
-
-            Assert.True(client.IsConnected);
-        }
     }
 }
