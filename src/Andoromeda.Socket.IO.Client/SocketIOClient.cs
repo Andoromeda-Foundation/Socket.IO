@@ -21,6 +21,8 @@ namespace Andoromeda.Socket.IO.Client
 
         public bool IsConnected { get; private set; }
 
+        public event Action<SocketIOClient> Connected;
+
         public SocketIOClient(string baseUrl) : this(baseUrl, new DefaultHttpClientFactory()) { }
         public SocketIOClient(string baseUrl, IHttpClientFactory httpClientFactory)
         {
@@ -57,6 +59,7 @@ namespace Andoromeda.Socket.IO.Client
                 await EstablishWebsocketConnectionDirectly(httpClient);
 
             IsConnected = true;
+            Connected?.Invoke(this);
         }
         private async ValueTask EstablishNormally(HttpClient httpClient)
         {
