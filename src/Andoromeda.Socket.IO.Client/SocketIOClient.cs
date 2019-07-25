@@ -78,7 +78,7 @@ namespace Andoromeda.Socket.IO.Client
 
             builder.Scheme = "ws";
             builder.Query = "EIO=3&transport=websocket&sid=" + info.SocketId;
-            await EstablishWebsocketConnection(builder.Uri);
+            await EstablishWebsocketConnection(builder.Uri, info);
 
             // Send [Ping]
 #if NETSTANDARD2_1
@@ -158,7 +158,7 @@ namespace Andoromeda.Socket.IO.Client
             }
 
             builder.Scheme = "ws";
-            await EstablishWebsocketConnection(builder.Uri);
+            await EstablishWebsocketConnection(builder.Uri, null);
 
 #if NETSTANDARD2_1
             Memory<byte> buffer = new byte[256];
@@ -343,9 +343,13 @@ namespace Andoromeda.Socket.IO.Client
             return (key, hash);
         }
 
-        private async ValueTask EstablishWebsocketConnection(Uri uri)
+        private async ValueTask EstablishWebsocketConnection(Uri uri, ConnectionInfo info)
         {
             var socket = new ClientWebSocket();
+
+            if (!(info is null))
+                socket.Options.KeepAliveInterval = TimeSpan.FromMilliseconds(info.PingInterval);
+
             await socket.ConnectAsync(uri, default);
 
             _socket = socket;
