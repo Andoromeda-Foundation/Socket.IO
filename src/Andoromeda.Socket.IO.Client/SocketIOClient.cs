@@ -120,13 +120,16 @@ namespace Andoromeda.Socket.IO.Client
                 var info = ParseConnectionInfoCore(content.Slice(0, length));
                 content = content.Slice(length);
 
-                if (!Utf8Parser.TryParse(content.Slice(0), out length, out consumed) || length != 2)
-                    ThrowParseException();
+                if (!content.IsEmpty)
+                {
+                    if (!Utf8Parser.TryParse(content.Slice(0), out length, out consumed) || length != 2)
+                        ThrowParseException();
 
-                content = content.Slice(consumed + 1);
+                    content = content.Slice(consumed + 1);
 
-                if (!Utf8Parser.TryParse(content.Slice(0), out int message, out _) || message != 40)
-                    ThrowParseException();
+                    if (!Utf8Parser.TryParse(content.Slice(0), out int message, out _) || message != 40)
+                        ThrowParseException();
+                }
 
                 return info;
             }
