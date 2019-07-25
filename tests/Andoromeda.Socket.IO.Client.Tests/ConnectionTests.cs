@@ -13,6 +13,8 @@ namespace Andoromeda.Socket.IO.Client.Tests
             using var client = new SocketIOClient("http://localhost:10000/", _httpClientFactory);
 
             await client.ConnectAsync();
+
+            Assert.True(client.IsConnected);
         }
 
         [Fact]
@@ -21,6 +23,8 @@ namespace Andoromeda.Socket.IO.Client.Tests
             using var client = new SocketIOClient("http://localhost:10000/", _httpClientFactory);
 
             await client.ConnectAsync(new ConnectionOptions() { NoLongPollingConnection = true });
+
+            Assert.True(client.IsConnected);
         }
     }
 }

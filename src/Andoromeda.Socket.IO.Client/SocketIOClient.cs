@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Buffers.Text;
 using System.Collections.Generic;
 using System.Linq;
@@ -16,6 +16,10 @@ namespace Andoromeda.Socket.IO.Client
     {
         private readonly string _baseUrl;
         private readonly IHttpClientFactory _httpClientFactory;
+
+        private ClientWebSocket _socket;
+
+        public bool IsConnected { get; private set; }
 
         public SocketIOClient(string baseUrl) : this(baseUrl, new DefaultHttpClientFactory()) { }
         public SocketIOClient(string baseUrl, IHttpClientFactory httpClientFactory)
@@ -51,6 +55,8 @@ namespace Andoromeda.Socket.IO.Client
                 await EstablishNormally(httpClient);
             else
                 await EstablishWebsocketConnectionDirectly(httpClient);
+
+            IsConnected = true;
         }
         private async ValueTask EstablishNormally(HttpClient httpClient)
         {
@@ -72,6 +78,35 @@ namespace Andoromeda.Socket.IO.Client
 
             builder.Scheme = "ws";
             builder.Query = "EIO=3&transport=websocket&sid=" + info.SocketId;
+            await EstablishWebsocketConnection(builder.Uri);
+
+            // Send [Ping]
+#if NETSTANDARD2_1
+            Memory<byte> buffer = new[] { (byte)'2', (byte)'p', (byte)'r', (byte)'o', (byte)'b', (byte)'e' };
+#else
+            var buffer = new ArraySegment<byte>(new[] { (byte)'2', (byte)'p', (byte)'r', (byte)'o', (byte)'b', (byte)'e' });
+#endif
+            await _socket.SendAsync(buffer, WebSocketMessageType.Text, true, default);
+
+            // Receive [Pong]
+            await _socket.ReceiveAsync(buffer, default);
+
+            static bool Is3Probe(ReadOnlySpan<byte> span) =>
+                span[0] == '3' && span[1] == 'p' && span[2] == 'r' && span[3] == 'o' && span[4] == 'b' && span[5] == 'e';
+#if NETSTANDARD2_1
+            if (!Is3Probe(buffer.Span))
+#else
+            if (!Is3Probe(buffer))
+#endif
+                throw new InvalidOperationException();
+
+            // Send [Upgrade]
+#if NETSTANDARD2_1
+            buffer = new[] { (byte)'5' };
+#else
+            buffer = new ArraySegment<byte>(new[] { (byte)'5' });
+#endif
+            await _socket.SendAsync(buffer, WebSocketMessageType.Text, true, default);
         }
         private async ValueTask EstablishWebsocketConnectionDirectly(HttpClient httpClient)
         {
@@ -269,6 +304,14 @@ namespace Andoromeda.Socket.IO.Client
 #endif
 
             return (key, hash);
+        }
+
+        private async ValueTask EstablishWebsocketConnection(Uri uri)
+        {
+            var socket = new ClientWebSocket();
+            await socket.ConnectAsync(uri, default);
+
+            _socket = socket;
         }
     }
 }
