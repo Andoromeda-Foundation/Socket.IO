@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Net.WebSockets;
 using System.Text;
@@ -32,29 +31,38 @@ namespace Andoromeda.Socket.IO.Client
             _buffer[_offset++] = (byte)value;
             return Task.CompletedTask;
         }
+        private async Task SendAndAppend(char value)
+        {
+#if NETSTANDARD2_1
+            await _socket.SendAsync(_buffer.AsMemory(), WebSocketMessageType.Text, false, default).ConfigureAwait(false);
+#else
+            await _socket.SendAsync(new ArraySegment<byte>(_buffer), WebSocketMessageType.Text, false, default).ConfigureAwait(false);
+#endif
+
+            _buffer[0] = (byte)value;
+            _offset = 1;
+        }
+
         public override Task WriteAsync(string value)
         {
             var charCount = Encoding.UTF8.GetMaxCharCount(_buffer.Length - _offset) - 1;
             if (value.Length > charCount)
                 return SendBigString(value, charCount);
 
-            var byteCount = Encoding.UTF8.GetBytes(value, 0, value.Length, _buffer, _offset);
-            _offset += byteCount;
+            _offset += Encoding.UTF8.GetBytes(value, 0, value.Length, _buffer, _offset);
             return Task.CompletedTask;
         }
         private async Task SendBigString(string value, int charCount)
         {
             var offset = Math.Min(value.Length, charCount);
-
-            var count = Encoding.UTF8.GetBytes(value, 0, offset, _buffer, _offset);
-            _offset += count;
+            _offset += Encoding.UTF8.GetBytes(value, 0, offset, _buffer, _offset);
 
             charCount = Encoding.UTF8.GetMaxCharCount(_buffer.Length) - 1;
 
 #if NETSTANDARD2_1
             var buffer = _buffer.AsMemory();
 #else
-             var buffer = new ArraySegment<byte>(_buffer);
+            var buffer = new ArraySegment<byte>(_buffer);
 #endif
 
             do
@@ -65,18 +73,6 @@ namespace Andoromeda.Socket.IO.Client
                 offset += charCount;
             }
             while (_offset == _buffer.Length);
-        }
-
-        async Task SendAndAppend(char value)
-        {
-#if NETSTANDARD2_1
-            await _socket.SendAsync(_buffer.AsMemory(), WebSocketMessageType.Text, false, default).ConfigureAwait(false);
-#else
-            await _socket.SendAsync(new ArraySegment<byte>(_buffer), WebSocketMessageType.Text, false, default).ConfigureAwait(false);
-#endif
-
-            _offset = 0;
-            _buffer[0] = (byte)value;
         }
 
         public override Task FlushAsync() =>
