@@ -107,7 +107,28 @@ namespace Andoromeda.Socket.IO.Client
             buffer = new ArraySegment<byte>(new[] { (byte)'5' });
 #endif
             await _socket.SendAsync(buffer, WebSocketMessageType.Text, true, default);
+
+            static ConnectionInfo ParseConnectionInfo(ReadOnlySpan<byte> content)
+            {
+                if (!Utf8Parser.TryParse(content, out int length, out var consumed))
+                    ThrowParseException();
+
+                content = content.Slice(consumed + 1);
+                var info = ParseConnectionInfoCore(content.Slice(0, length));
+                content = content.Slice(length);
+
+                if (!Utf8Parser.TryParse(content.Slice(0), out length, out consumed) || length != 2)
+                    ThrowParseException();
+
+                content = content.Slice(consumed + 1);
+
+                if (!Utf8Parser.TryParse(content.Slice(0), out int message, out _) || message != 40)
+                    ThrowParseException();
+
+                return info;
+            }
         }
+
         private async ValueTask EstablishWebsocketConnectionDirectly(HttpClient httpClient)
         {
             var builder = new UriBuilder(_baseUrl)
@@ -135,142 +156,158 @@ namespace Andoromeda.Socket.IO.Client
                 if (accept != expectedAccept)
                     throw new InvalidOperationException();
             }
+
+            builder.Scheme = "ws";
+            await EstablishWebsocketConnection(builder.Uri);
+
+#if NETSTANDARD2_1
+            Memory<byte> buffer = new byte[256];
+            await _socket.ReceiveAsync(buffer, default);
+
+            var info = ParseConnectionInfo(buffer.Span);
+#else
+            var buffer = new ArraySegment<byte>(new byte[256]);
+            await _socket.ReceiveAsync(buffer, default);
+
+            var info = ParseConnectionInfo(buffer);
+#endif
+
+            var result = await _socket.ReceiveAsync(buffer, default);
+            if (result.Count != 2)
+                throw new InvalidOperationException();
+
+#if NETSTANDARD2_1
+            if (!Is40(buffer.Span))
+#else
+            if (!Is40(buffer))
+#endif
+                throw new InvalidOperationException();
+
+            static ConnectionInfo ParseConnectionInfo(ReadOnlySpan<byte> content)
+            {
+                if (content[0] != '0')
+                    throw new InvalidOperationException();
+
+                return ParseConnectionInfoCore(content.Slice(1));
+            }
+            static bool Is40(ReadOnlySpan<byte> span) =>
+                span[0] == '4' && span[1] == '0';
         }
 
-        private static ConnectionInfo ParseConnectionInfo(ReadOnlySpan<byte> content)
+        static ConnectionInfo ParseConnectionInfoCore(ReadOnlySpan<byte> content)
         {
-            if (!Utf8Parser.TryParse(content, out int length, out var consumed))
+            if (content[0] != '0' || content[1] != '{')
                 ThrowParseException();
 
-            content = content.Slice(consumed + 1);
-            var info = ParseConnectionInfoCore(content.Slice(0, length));
-            content = content.Slice(length);
+            content = content.Slice(2);
 
-            if (!Utf8Parser.TryParse(content.Slice(0), out length, out consumed) || length != 2)
-                ThrowParseException();
+            var info = new ConnectionInfo();
 
-            content = content.Slice(consumed + 1);
-
-            if (!Utf8Parser.TryParse(content.Slice(0), out int message, out _) || message != 40)
-                ThrowParseException();
-
-            return info;
-
-            static ConnectionInfo ParseConnectionInfoCore(ReadOnlySpan<byte> content)
+            while (true)
             {
-                if (content[0] != '0' || content[1] != '{')
+                if (!TryParseQuotedString(content, out var key, out var consumed))
                     ThrowParseException();
 
-                content = content.Slice(2);
+                if (content[consumed] != ':')
+                    ThrowParseException();
+                consumed += 1;
+                content = content.Slice(consumed);
 
-                var info = new ConnectionInfo();
-
-                while (true)
+                if (key.Equals("sid", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (!TryParseQuotedString(content, out var key, out var consumed))
+                    if (!TryParseQuotedString(content, out var socketId, out consumed))
                         ThrowParseException();
 
-                    if (content[consumed] != ':')
-                        ThrowParseException();
-                    consumed += 1;
-                    content = content.Slice(consumed);
-
-                    if (key.Equals("sid", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (!TryParseQuotedString(content, out var socketId, out consumed))
-                            ThrowParseException();
-
-                        info.SocketId = socketId;
-                    }
-                    else if (key.Equals("upgrades", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (!TryParseUpgradableList(content, out var upgrades, out consumed))
-                            ThrowParseException();
-
-                        info.Upgrades = upgrades;
-                    }
-                    else if (key.Equals("pingInterval", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (!Utf8Parser.TryParse(content, out int interval, out consumed))
-                            ThrowParseException();
-
-                        info.PingInterval = interval;
-                    }
-                    else if (key.Equals("pingTimeout", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (!Utf8Parser.TryParse(content, out int timeout, out consumed))
-                            ThrowParseException();
-
-                        info.PingTimeout = timeout;
-                    }
-                    else
-                        ThrowParseException();
-
-                    if (content[consumed] == ',')
-                        consumed++;
-
-                    if (content[consumed] == '}')
-                        break;
-
-                    content = content.Slice(consumed);
+                    info.SocketId = socketId;
                 }
+                else if (key.Equals("upgrades", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!TryParseUpgradableList(content, out var upgrades, out consumed))
+                        ThrowParseException();
 
-                return info;
+                    info.Upgrades = upgrades;
+                }
+                else if (key.Equals("pingInterval", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!Utf8Parser.TryParse(content, out int interval, out consumed))
+                        ThrowParseException();
+
+                    info.PingInterval = interval;
+                }
+                else if (key.Equals("pingTimeout", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!Utf8Parser.TryParse(content, out int timeout, out consumed))
+                        ThrowParseException();
+
+                    info.PingTimeout = timeout;
+                }
+                else
+                    ThrowParseException();
+
+                if (content[consumed] == ',')
+                    consumed++;
+
+                if (content[consumed] == '}')
+                    break;
+
+                content = content.Slice(consumed);
             }
-            static bool TryParseQuotedString(ReadOnlySpan<byte> source, out string result, out int consumed)
-            {
-                result = null;
-                consumed = 0;
 
-                if (source[0] != '"')
-                    return false;
+            return info;
+        }
+        static bool TryParseQuotedString(ReadOnlySpan<byte> source, out string result, out int consumed)
+        {
+            result = null;
+            consumed = 0;
 
-                var index = source.Slice(1).IndexOf((byte)'"');
-                if (index == -1)
-                    return false;
+            if (source[0] != '"')
+                return false;
 
-                source = source.Slice(1, index);
+            var index = source.Slice(1).IndexOf((byte)'"');
+            if (index == -1)
+                return false;
+
+            source = source.Slice(1, index);
 #if NETSTANDARD2_1
-                result = Encoding.UTF8.GetString(source);
+            result = Encoding.UTF8.GetString(source);
 #else
                 result = Encoding.UTF8.GetString(source.ToArray());
 #endif
-                consumed = source.Length + 2;
-                return true;
-            }
-            static bool TryParseUpgradableList(ReadOnlySpan<byte> source, out string[] result, out int consumed)
-            {
-                result = null;
-                consumed = 0;
+            consumed = source.Length + 2;
+            return true;
+        }
+        static bool TryParseUpgradableList(ReadOnlySpan<byte> source, out string[] result, out int consumed)
+        {
+            result = null;
+            consumed = 0;
 
-                if (source[0] != '[')
+            if (source[0] != '[')
+                return false;
+
+            source = source.Slice(1);
+
+            var list = new List<string>();
+            while (source[0] != ']')
+            {
+                if (!TryParseQuotedString(source, out var upgrade, out var innerConsumed))
                     return false;
 
-                source = source.Slice(1);
+                list.Add(upgrade);
 
-                var list = new List<string>();
-                while (source[0] != ']')
-                {
-                    if (!TryParseQuotedString(source, out var upgrade, out var innerConsumed))
-                        return false;
+                consumed += innerConsumed;
 
-                    list.Add(upgrade);
+                if (source[innerConsumed] == ',')
+                    consumed++;
 
-                    consumed += innerConsumed;
-
-                    if (source[innerConsumed] == ',')
-                        consumed++;
-
-                    source = source.Slice(consumed);
-                }
-
-                consumed += 2;
-                if (list.Count == 0)
-                    result = Array.Empty<string>();
-                else
-                    result = list.ToArray();
-                return true;
+                source = source.Slice(consumed);
             }
+
+            consumed += 2;
+            if (list.Count == 0)
+                result = Array.Empty<string>();
+            else
+                result = list.ToArray();
+            return true;
         }
         static void ThrowParseException() => throw new InvalidOperationException();
 
