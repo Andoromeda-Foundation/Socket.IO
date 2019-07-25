@@ -66,7 +66,7 @@ namespace Andoromeda.Socket.IO.Client
             var builder = new UriBuilder(_baseUrl);
 
             builder.Path = "/socket.io/";
-            builder.Query = "EIO=3&transport=polling&t=" + DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+            builder.Query = "EIO=3&transport=polling&b64=1&t=" + DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
 
             ConnectionInfo info;
             using (var response = await httpClient.GetAsync(builder.Uri))
