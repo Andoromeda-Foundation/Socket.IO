@@ -1,4 +1,7 @@
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
+using System.Buffers;
 using System.Buffers.Text;
 using System.Collections.Generic;
 using System.Linq;
@@ -359,6 +362,28 @@ namespace Andoromeda.Socket.IO.Client
             await socket.ConnectAsync(uri, default);
 
             _socket = socket;
+        }
+
+        public async ValueTask Send(string eventName, object data)
+        {
+            var buffer = ArrayPool<byte>.Shared.Rent(8192);
+            try
+            {
+                buffer[0] = (byte)'4';
+                buffer[1] = (byte)'2';
+
+                var array = new JArray(eventName, data);
+
+                using var dataWriter = new JsonDataWriter(_socket, buffer);
+                using var jsonWriter = new JsonTextWriter(dataWriter) { Formatting = Formatting.None };
+
+                await array.WriteToAsync(jsonWriter);
+                await dataWriter.FlushAsync();
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
         }
     }
 }
