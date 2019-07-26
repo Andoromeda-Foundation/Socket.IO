@@ -4,6 +4,7 @@ using System;
 using System.Buffers;
 using System.Buffers.Text;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -398,6 +399,57 @@ namespace Andoromeda.Socket.IO.Client
             await _socket.CloseAsync(WebSocketCloseStatus.Empty, null, default).ConfigureAwait(false); ;
 
             IsConnected = false;
+        }
+
+        public async ValueTask<(string Event, JToken Data)> ReceiveAsync()
+        {
+            using var stream = await ReceiveWithStream().ConfigureAwait(false);
+
+            var buffer = new byte[2];
+            stream.Read(buffer, 0, 2);
+            if (buffer[0] != '4' || buffer[1] != '2')
+                throw new InvalidOperationException();
+
+            using var reader = new JsonTextReader(new StreamReader(stream));
+            var response = await JArray.LoadAsync(reader).ConfigureAwait(false);
+
+            return (response[0].ToObject<string>(), response[1]);
+        }
+        private async ValueTask<Stream> ReceiveWithStream()
+        {
+            var stream = new MemoryStream();
+
+            var array = ArrayPool<byte>.Shared.Rent(8192);
+            try
+            {
+#if NETSTANDARD2_1
+                var buffer = array.AsMemory();
+                ValueWebSocketReceiveResult result;
+#else
+                var buffer = new ArraySegment<byte>(array);
+                WebSocketReceiveResult result = null;
+#endif
+
+                do
+                {
+                    result = await _socket.ReceiveAsync(buffer, default).ConfigureAwait(false);
+
+#if NETSTANDARD2_1
+                    stream.Write(buffer.Span[..result.Count]);
+#else
+                    stream.Write(buffer.Array, buffer.Offset, result.Count);
+#endif
+                }
+                while (!result.EndOfMessage);
+
+                stream.Position = 0;
+
+                return stream;
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(array);
+            }
         }
     }
 }
