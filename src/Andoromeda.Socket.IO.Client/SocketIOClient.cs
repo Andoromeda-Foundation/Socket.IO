@@ -385,5 +385,19 @@ namespace Andoromeda.Socket.IO.Client
                 ArrayPool<byte>.Shared.Return(buffer);
             }
         }
+
+        public async ValueTask CloseAsync()
+        {
+#if NETSTANDARD2_1
+            Memory<byte> buffer = new[] { (byte)'4', (byte)'1' };
+#else
+            var buffer = new ArraySegment<byte>(new[] { (byte)'4', (byte)'1' });
+#endif
+
+            await _socket.SendAsync(buffer, WebSocketMessageType.Text, true, default).ConfigureAwait(false); ;
+            await _socket.CloseAsync(WebSocketCloseStatus.Empty, null, default).ConfigureAwait(false); ;
+
+            IsConnected = false;
+        }
     }
 }

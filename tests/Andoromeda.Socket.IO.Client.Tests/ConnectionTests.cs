@@ -15,6 +15,10 @@ namespace Andoromeda.Socket.IO.Client.Tests
             await client.ConnectAsync();
 
             Assert.True(client.IsConnected);
+
+            await client.CloseAsync();
+
+            Assert.False(client.IsConnected);
         }
     }
 }
