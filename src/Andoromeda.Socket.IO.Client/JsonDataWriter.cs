@@ -46,7 +46,7 @@ namespace Andoromeda.Socket.IO.Client
         public override Task WriteAsync(string value)
         {
             var charCount = Encoding.UTF8.GetMaxCharCount(_buffer.Length - _offset) - 1;
-            if (value.Length > charCount)
+            if (charCount < value.Length)
                 return SendBigString(value, charCount);
 
             _offset += Encoding.UTF8.GetBytes(value, 0, value.Length, _buffer, _offset);
@@ -73,6 +73,16 @@ namespace Andoromeda.Socket.IO.Client
                 offset += charCount;
             }
             while (_offset == _buffer.Length);
+        }
+
+        public override Task WriteAsync(char[] buffer, int index, int count)
+        {
+            var charCount = Encoding.UTF8.GetMaxCharCount(_buffer.Length - _offset) - 1;
+            if (charCount < count)
+                throw new NotImplementedException();
+
+            _offset += Encoding.UTF8.GetBytes(buffer, index, count, _buffer, _offset);
+            return Task.CompletedTask;
         }
 
         public override Task FlushAsync() =>
