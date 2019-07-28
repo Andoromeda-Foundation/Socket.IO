@@ -121,7 +121,7 @@ namespace Andoromeda.Socket.IO.Client
                     ThrowParseException();
 
                 content = content.Slice(consumed + 1);
-                var info = ParseConnectionInfoCore(content[..length]);
+                var info = ParseConnectionInfoCore(content.Slice(0, length));
                 content = content.Slice(length);
 
                 if (!content.IsEmpty)
