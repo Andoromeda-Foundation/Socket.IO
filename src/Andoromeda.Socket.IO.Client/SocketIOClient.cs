@@ -3,7 +3,6 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Buffers;
 using System.Buffers.Text;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -118,21 +117,21 @@ namespace Andoromeda.Socket.IO.Client
             static ConnectionInfo ParseConnectionInfo(ReadOnlySpan<byte> content)
             {
                 if (!Utf8Parser.TryParse(content, out int length, out var consumed))
-                    ThrowParseException();
+                    Utils.ThrowParseException();
 
                 content = content.Slice(consumed + 1);
-                var info = ParseConnectionInfoCore(content.Slice(0, length));
+                var info = ConnectionInfo.Parse(content.Slice(0, length));
                 content = content.Slice(length);
 
                 if (!content.IsEmpty)
                 {
                     if (!Utf8Parser.TryParse(content, out length, out consumed) || length != 2)
-                        ThrowParseException();
+                        Utils.ThrowParseException();
 
                     content = content.Slice(consumed + 1);
 
                     if (!Utf8Parser.TryParse(content, out int message, out _) || message != 40)
-                        ThrowParseException();
+                        Utils.ThrowParseException();
                 }
 
                 return info;
@@ -174,12 +173,12 @@ namespace Andoromeda.Socket.IO.Client
             Memory<byte> buffer = new byte[256];
             await _socket.ReceiveAsync(buffer, default).ConfigureAwait(false);
 
-            var info = ParseConnectionInfo(buffer.Span);
+            var info = ConnectionInfo.Parse(buffer.Span);
 #else
             var buffer = new ArraySegment<byte>(new byte[256]);
             await _socket.ReceiveAsync(buffer, default).ConfigureAwait(false);
 
-            var info = ParseConnectionInfo(buffer);
+            var info = ConnectionInfo.Parse(buffer);
 #endif
 
             var result = await _socket.ReceiveAsync(buffer, default).ConfigureAwait(false);
@@ -193,133 +192,9 @@ namespace Andoromeda.Socket.IO.Client
 #endif
                 throw new InvalidOperationException();
 
-            static ConnectionInfo ParseConnectionInfo(ReadOnlySpan<byte> content)
-            {
-                if (content[0] != '0')
-                    throw new InvalidOperationException();
-
-                return ParseConnectionInfoCore(content.Slice(1));
-            }
             static bool Is40(ReadOnlySpan<byte> span) =>
                 span[0] == '4' && span[1] == '0';
         }
-
-        static ConnectionInfo ParseConnectionInfoCore(ReadOnlySpan<byte> content)
-        {
-            if (content[0] != '0' || content[1] != '{')
-                ThrowParseException();
-
-            content = content.Slice(2);
-
-            var info = new ConnectionInfo();
-
-            while (true)
-            {
-                if (!TryParseQuotedString(content, out var key, out var consumed))
-                    ThrowParseException();
-
-                if (content[consumed] != ':')
-                    ThrowParseException();
-                consumed += 1;
-                content = content.Slice(consumed);
-
-                if (key.Equals("sid", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (!TryParseQuotedString(content, out var socketId, out consumed))
-                        ThrowParseException();
-
-                    info.SocketId = socketId;
-                }
-                else if (key.Equals("upgrades", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (!TryParseUpgradableList(content, out var upgrades, out consumed))
-                        ThrowParseException();
-
-                    info.Upgrades = upgrades;
-                }
-                else if (key.Equals("pingInterval", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (!Utf8Parser.TryParse(content, out int interval, out consumed))
-                        ThrowParseException();
-
-                    info.PingInterval = interval;
-                }
-                else if (key.Equals("pingTimeout", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (!Utf8Parser.TryParse(content, out int timeout, out consumed))
-                        ThrowParseException();
-
-                    info.PingTimeout = timeout;
-                }
-                else
-                    ThrowParseException();
-
-                if (content[consumed] == ',')
-                    consumed++;
-
-                if (content[consumed] == '}')
-                    break;
-
-                content = content.Slice(consumed);
-            }
-
-            return info;
-        }
-        static bool TryParseQuotedString(ReadOnlySpan<byte> source, out string result, out int consumed)
-        {
-            result = null;
-            consumed = 0;
-
-            if (source[0] != '"')
-                return false;
-
-            var index = source.Slice(1).IndexOf((byte)'"');
-            if (index == -1)
-                return false;
-
-            source = source.Slice(1, index);
-#if NETSTANDARD2_1
-            result = Encoding.UTF8.GetString(source);
-#else
-                result = Encoding.UTF8.GetString(source.ToArray());
-#endif
-            consumed = source.Length + 2;
-            return true;
-        }
-        static bool TryParseUpgradableList(ReadOnlySpan<byte> source, out string[] result, out int consumed)
-        {
-            result = null;
-            consumed = 0;
-
-            if (source[0] != '[')
-                return false;
-
-            source = source.Slice(1);
-
-            var list = new List<string>();
-            while (source[0] != ']')
-            {
-                if (!TryParseQuotedString(source, out var upgrade, out var innerConsumed))
-                    return false;
-
-                list.Add(upgrade);
-
-                consumed += innerConsumed;
-
-                if (source[innerConsumed] == ',')
-                    consumed++;
-
-                source = source.Slice(consumed);
-            }
-
-            consumed += 2;
-            if (list.Count == 0)
-                result = Array.Empty<string>();
-            else
-                result = list.ToArray();
-            return true;
-        }
-        static void ThrowParseException() => throw new InvalidOperationException();
 
         static (string, string) GenerateWebsocketKeyAndExpectedHash()
         {
@@ -395,8 +270,8 @@ namespace Andoromeda.Socket.IO.Client
             var buffer = new ArraySegment<byte>(new[] { (byte)'4', (byte)'1' });
 #endif
 
-            await _socket.SendAsync(buffer, WebSocketMessageType.Text, true, default).ConfigureAwait(false); ;
-            await _socket.CloseAsync(WebSocketCloseStatus.Empty, null, default).ConfigureAwait(false); ;
+            await _socket.SendAsync(buffer, WebSocketMessageType.Text, true, default).ConfigureAwait(false);
+            await _socket.CloseAsync(WebSocketCloseStatus.Empty, null, default).ConfigureAwait(false);
 
             IsConnected = false;
         }

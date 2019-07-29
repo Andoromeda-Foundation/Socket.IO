@@ -1,16 +1,29 @@
-﻿using Newtonsoft.Json;
+﻿#if NETSTANDARD2_1
+using System.Text.Json.Serialization;
+#endif
 
 namespace Andoromeda.Socket.IO.Client
 {
-    sealed class ConnectionInfo
+    sealed partial class ConnectionInfo
     {
-        [JsonProperty("sid")]
+#if NETSTANDARD2_1
+        [JsonPropertyName("sid")]
+#endif
         public string SocketId { get; set; }
-        [JsonProperty("upgrades")]
+
+#if NETSTANDARD2_1
+        [JsonPropertyName("upgrades")]
+#endif
         public string[] Upgrades { get; set; }
-        [JsonProperty("pingInterval")]
+
+#if NETSTANDARD2_1
+        [JsonPropertyName("pingInterval")]
+#endif
         public int PingInterval { get; set; }
-        [JsonProperty("pingTimeout")]
+
+#if NETSTANDARD2_1
+        [JsonPropertyName("pingTimeout")]
+#endif
         public int PingTimeout { get; set; }
     }
 }
