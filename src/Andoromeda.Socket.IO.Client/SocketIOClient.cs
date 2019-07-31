@@ -84,7 +84,7 @@ namespace Andoromeda.Socket.IO.Client
 
             builder.Scheme = "ws";
             builder.Query = "EIO=3&transport=websocket&sid=" + info.SocketId;
-            await EstablishWebsocketConnection(builder.Uri, info).ConfigureAwait(false);
+            await EstablishWebsocketConnection(builder.Uri).ConfigureAwait(false);
 
             // Send [Ping]
 #if NETSTANDARD2_1
@@ -113,6 +113,8 @@ namespace Andoromeda.Socket.IO.Client
             buffer = new ArraySegment<byte>(new[] { (byte)'5' });
 #endif
             await _socket.SendAsync(buffer, WebSocketMessageType.Text, true, default).ConfigureAwait(false);
+
+            _ = Keepalive(info.PingInterval);
 
             static ConnectionInfo ParseConnectionInfo(ReadOnlySpan<byte> content)
             {
@@ -167,7 +169,7 @@ namespace Andoromeda.Socket.IO.Client
             }
 
             builder.Scheme = "ws";
-            await EstablishWebsocketConnection(builder.Uri, null).ConfigureAwait(false);
+            await EstablishWebsocketConnection(builder.Uri).ConfigureAwait(false);
 
 #if NETSTANDARD2_1
             Memory<byte> buffer = new byte[256];
@@ -228,12 +230,9 @@ namespace Andoromeda.Socket.IO.Client
             return (key, hash);
         }
 
-        private async ValueTask EstablishWebsocketConnection(Uri uri, ConnectionInfo info)
+        private async ValueTask EstablishWebsocketConnection(Uri uri)
         {
             var socket = new ClientWebSocket();
-
-            if (!(info is null))
-                socket.Options.KeepAliveInterval = TimeSpan.FromMilliseconds(info.PingInterval);
 
             await socket.ConnectAsync(uri, default).ConfigureAwait(false);
 
@@ -271,6 +270,31 @@ namespace Andoromeda.Socket.IO.Client
 #endif
                 await JsonSerializer.SerializeAsync(_messageStream, array).ConfigureAwait(false);
                 await _messageStream.FlushAsync().ConfigureAwait(false);
+            }
+        }
+
+        async Task Keepalive(int interval)
+        {
+            var array = new byte[1];
+#if NETSTANDARD2_1
+            var buffer = array.AsMemory();
+#else
+            var buffer = new ArraySegment<byte>(array);
+#endif
+
+            while (true)
+            {
+                await Task.Delay(interval).ConfigureAwait(false);
+
+                // Send [Ping]
+                array[0] = (byte)'2';
+                await _socket.SendAsync(buffer, WebSocketMessageType.Text, true, default).ConfigureAwait(false);
+
+                // Receive [Pong]
+                await _socket.ReceiveAsync(buffer, default).ConfigureAwait(false);
+
+                if (array[0] != (byte)'3')
+                    throw new InvalidOperationException();
             }
         }
 
