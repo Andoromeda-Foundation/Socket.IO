@@ -24,10 +24,52 @@ namespace Andoromeda.Socket.IO.Client
         private byte[] _bufferArray;
         private int _bufferPosition;
 
+        private bool _isEndOfMessage;
+
         public WebSocketMessageStream(ClientWebSocket socket)
         {
             _socket = socket;
         }
+
+        public void EnsureFinalBlockIsHandled()
+        {
+            if (_isEndOfMessage)
+                throw new InvalidOperationException();
+        }
+
+        public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            if (_isEndOfMessage)
+            {
+                _isEndOfMessage = false;
+                return 0;
+            }
+
+            var result = await _socket.ReceiveAsync(new ArraySegment<byte>(buffer, offset, count), cancellationToken).ConfigureAwait(false);
+
+            if (result.EndOfMessage)
+                _isEndOfMessage = true;
+
+            return result.Count;
+        }
+
+#if NETSTANDARD2_1
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (_isEndOfMessage)
+            {
+                _isEndOfMessage = false;
+                return 0;
+            }
+
+            var result = await _socket.ReceiveAsync(buffer, cancellationToken).ConfigureAwait(false);
+
+            if (result.EndOfMessage)
+                _isEndOfMessage = true;
+
+            return result.Count;
+        }
+#endif
 
         public BufferScope RentBuffer() => new BufferScope(this);
 
