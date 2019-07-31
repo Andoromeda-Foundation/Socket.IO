@@ -20,6 +20,10 @@ namespace Andoromeda.Socket.IO.Client
             List<object> items = null;
 
             reader.Read();
+
+            if (reader.TokenType == JsonTokenType.EndArray)
+                return result;
+
             do
             {
                 if (items is null && !(item is null))
