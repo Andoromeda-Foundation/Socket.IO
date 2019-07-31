@@ -20,6 +20,7 @@ namespace Andoromeda.Socket.IO.Client
         private readonly HttpClient _httpClient;
 
         private ClientWebSocket _socket;
+        private WebSocketMessageStream _messageStream;
 
         public bool IsConnected { get; private set; }
 
@@ -56,6 +57,8 @@ namespace Andoromeda.Socket.IO.Client
                 await EstablishNormally().ConfigureAwait(false);
             else
                 await EstablishWebsocketConnectionDirectly().ConfigureAwait(false);
+
+            _messageStream = new WebSocketMessageStream(_socket);
 
             IsConnected = true;
             Connected?.Invoke(this);
@@ -236,25 +239,19 @@ namespace Andoromeda.Socket.IO.Client
             _socket = socket;
         }
 
-        public async ValueTask Send(string eventName, object data)
+        public async ValueTask SendAsync(string eventName, object data)
         {
-            var buffer = ArrayPool<byte>.Shared.Rent(8192);
-            try
+            var array = data == null ? new string[] { eventName } : new object[] { eventName, data };
+
+            using (_messageStream.RentBuffer())
             {
-                buffer[0] = (byte)'4';
-                buffer[1] = (byte)'2';
-
-                var array = new JArray(eventName, data);
-
-                using var dataWriter = new JsonDataWriter(_socket, buffer);
-                using var jsonWriter = new JsonTextWriter(dataWriter) { Formatting = Formatting.None };
-
-                await array.WriteToAsync(jsonWriter).ConfigureAwait(false);
-                await dataWriter.FlushAsync().ConfigureAwait(false);
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(buffer);
+#if NETSTANDARD2_1
+                await _messageStream.WriteAsync(new[] { (byte)'4', (byte)'2' }, default).ConfigureAwait(false);
+#else
+                await _messageStream.WriteAsync(new[] { (byte)'4', (byte)'2' }, 0, 2, default).ConfigureAwait(false);
+#endif
+                await JsonSerializer.SerializeAsync(_messageStream, array).ConfigureAwait(false);
+                await _messageStream.FlushAsync().ConfigureAwait(false);
             }
         }
 
