@@ -9,6 +9,7 @@ using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -239,6 +240,24 @@ namespace Andoromeda.Socket.IO.Client
             _socket = socket;
         }
 
+        public async ValueTask<SocketIOMessage> ReceiveAsync()
+        {
+            _messageStream.EnsureFinalBlockIsHandled();
+
+            const int HeaderSize = 2;
+            var header = new byte[HeaderSize];
+
+#if NETSTANDARD2_1
+            await _messageStream.ReadAsync(header).ConfigureAwait(false);
+#else
+            await _messageStream.ReadAsync(header, 0, HeaderSize).ConfigureAwait(false);
+#endif
+            if (header[0] != (byte)'4' || header[1] != (byte)'2')
+                Utils.ThrowParseException();
+
+            return await JsonSerializer.DeserializeAsync<SocketIOMessage>(_messageStream).ConfigureAwait(false);
+        }
+
         public async ValueTask SendAsync(string eventName, object data)
         {
             var array = data == null ? new string[] { eventName } : new object[] { eventName, data };
@@ -267,57 +286,6 @@ namespace Andoromeda.Socket.IO.Client
             await _socket.CloseAsync(WebSocketCloseStatus.Empty, null, default).ConfigureAwait(false);
 
             IsConnected = false;
-        }
-
-        public async ValueTask<(string Event, JToken Data)> ReceiveAsync()
-        {
-            using var stream = await ReceiveWithStream().ConfigureAwait(false);
-
-            var buffer = new byte[2];
-            stream.Read(buffer, 0, 2);
-            if (buffer[0] != '4' || buffer[1] != '2')
-                throw new InvalidOperationException();
-
-            using var reader = new JsonTextReader(new StreamReader(stream));
-            var response = await JArray.LoadAsync(reader).ConfigureAwait(false);
-
-            return (response[0].ToObject<string>(), response[1]);
-        }
-        private async ValueTask<Stream> ReceiveWithStream()
-        {
-            var stream = new MemoryStream();
-
-            var array = ArrayPool<byte>.Shared.Rent(8192);
-            try
-            {
-#if NETSTANDARD2_1
-                var buffer = array.AsMemory();
-                ValueWebSocketReceiveResult result;
-#else
-                var buffer = new ArraySegment<byte>(array);
-                WebSocketReceiveResult result = null;
-#endif
-
-                do
-                {
-                    result = await _socket.ReceiveAsync(buffer, default).ConfigureAwait(false);
-
-#if NETSTANDARD2_1
-                    stream.Write(buffer.Span[..result.Count]);
-#else
-                    stream.Write(buffer.Array, buffer.Offset, result.Count);
-#endif
-                }
-                while (!result.EndOfMessage);
-
-                stream.Position = 0;
-
-                return stream;
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(array);
-            }
         }
     }
 }
