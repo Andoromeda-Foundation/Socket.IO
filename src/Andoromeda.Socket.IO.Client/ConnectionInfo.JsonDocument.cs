@@ -11,7 +11,7 @@ namespace Andoromeda.Socket.IO.Client
             if (content[0] != '0')
                 Utils.ThrowParseException();
 
-            return JsonSerializer.Deserialize<ConnectionInfo>(content.Slice(1));
+            return JsonSerializer.Deserialize<ConnectionInfo>(content[1..]);
         }
     }
 }
