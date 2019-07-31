@@ -18,7 +18,7 @@ namespace Andoromeda.Socket.IO.Client
     public sealed class SocketIOClient : IDisposable
     {
         private readonly string _baseUrl;
-        private readonly IHttpClientFactory _httpClientFactory;
+        private readonly HttpClient _httpClient;
 
         private ClientWebSocket _socket;
 
@@ -26,11 +26,10 @@ namespace Andoromeda.Socket.IO.Client
 
         public event Action<SocketIOClient> Connected;
 
-        public SocketIOClient(string baseUrl) : this(baseUrl, new DefaultHttpClientFactory()) { }
-        public SocketIOClient(string baseUrl, IHttpClientFactory httpClientFactory)
+        public SocketIOClient(string baseUrl, HttpClient httpClient)
         {
-            _baseUrl = baseUrl;
-            _httpClientFactory = httpClientFactory;
+            _baseUrl = baseUrl ?? throw new ArgumentNullException(nameof(baseUrl));
+            _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         }
 
         #region IDisposable implementation
@@ -54,17 +53,15 @@ namespace Andoromeda.Socket.IO.Client
         public ValueTask ConnectAsync() => ConnectAsync(null);
         public async ValueTask ConnectAsync(ConnectionOptions options)
         {
-            var httpClient = _httpClientFactory.Create();
-
             if (options is null || !options.NoLongPollingConnection)
-                await EstablishNormally(httpClient).ConfigureAwait(false);
+                await EstablishNormally().ConfigureAwait(false);
             else
-                await EstablishWebsocketConnectionDirectly(httpClient).ConfigureAwait(false);
+                await EstablishWebsocketConnectionDirectly().ConfigureAwait(false);
 
             IsConnected = true;
             Connected?.Invoke(this);
         }
-        private async ValueTask EstablishNormally(HttpClient httpClient)
+        private async ValueTask EstablishNormally()
         {
             var builder = new UriBuilder(_baseUrl);
 
@@ -72,7 +69,7 @@ namespace Andoromeda.Socket.IO.Client
             builder.Query = "EIO=3&transport=polling&b64=1&t=" + DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
 
             ConnectionInfo info;
-            using (var response = await httpClient.GetAsync(builder.Uri).ConfigureAwait(false))
+            using (var response = await _httpClient.GetAsync(builder.Uri).ConfigureAwait(false))
             {
                 response.EnsureSuccessStatusCode();
 
@@ -138,7 +135,7 @@ namespace Andoromeda.Socket.IO.Client
             }
         }
 
-        private async ValueTask EstablishWebsocketConnectionDirectly(HttpClient httpClient)
+        private async ValueTask EstablishWebsocketConnectionDirectly()
         {
             var builder = new UriBuilder(_baseUrl)
             {
@@ -156,7 +153,7 @@ namespace Andoromeda.Socket.IO.Client
                 request.Headers.Add("Sec-Websocket-Key", key);
                 request.Headers.Add("Sec-Websocket-Extensions", "permessage-deflate; client_max_window_bits");
 
-                using var response = await httpClient.SendAsync(request).ConfigureAwait(false);
+                using var response = await _httpClient.SendAsync(request).ConfigureAwait(false);
 
                 if (response.StatusCode != HttpStatusCode.SwitchingProtocols)
                     throw new InvalidOperationException();
