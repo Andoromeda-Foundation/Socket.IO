@@ -20,6 +20,8 @@ namespace Andoromeda.Socket.IO.Client
         private readonly string _baseUrl;
         private readonly HttpClient _httpClient;
 
+        private readonly byte[] _engineIOPacketBuffer = new byte[1];
+
         private ClientWebSocket _socket;
         private WebSocketMessageStream _messageStream;
 
@@ -86,33 +88,12 @@ namespace Andoromeda.Socket.IO.Client
             builder.Query = "EIO=3&transport=websocket&sid=" + info.SocketId;
             await EstablishWebsocketConnection(builder.Uri).ConfigureAwait(false);
 
-            // Send [Ping]
-#if NETSTANDARD2_1
-            Memory<byte> buffer = new[] { (byte)'2', (byte)'p', (byte)'r', (byte)'o', (byte)'b', (byte)'e' };
-#else
-            var buffer = new ArraySegment<byte>(new[] { (byte)'2', (byte)'p', (byte)'r', (byte)'o', (byte)'b', (byte)'e' });
-#endif
-            await _socket.SendAsync(buffer, WebSocketMessageType.Text, true, default).ConfigureAwait(false);
+            await SendEngineIOPingProbeAsync().ConfigureAwait(false);
 
-            // Receive [Pong]
-            await _socket.ReceiveAsync(buffer, default).ConfigureAwait(false);
-
-            static bool Is3Probe(ReadOnlySpan<byte> span) =>
-                span[0] == '3' && span[1] == 'p' && span[2] == 'r' && span[3] == 'o' && span[4] == 'b' && span[5] == 'e';
-#if NETSTANDARD2_1
-            if (!Is3Probe(buffer.Span))
-#else
-            if (!Is3Probe(buffer))
-#endif
+            if (await ReceiveEngineIOPacketAsync().ConfigureAwait(false) != EngineIOPacket.PongProbe)
                 throw new InvalidOperationException();
 
-            // Send [Upgrade]
-#if NETSTANDARD2_1
-            buffer = new[] { (byte)'5' };
-#else
-            buffer = new ArraySegment<byte>(new[] { (byte)'5' });
-#endif
-            await _socket.SendAsync(buffer, WebSocketMessageType.Text, true, default).ConfigureAwait(false);
+            await SendEngineIOPacketAsync(EngineIOPacket.Upgrade).ConfigureAwait(false);
 
             _ = Keepalive(info.PingInterval);
 
@@ -295,6 +276,76 @@ namespace Andoromeda.Socket.IO.Client
 
                 if (array[0] != (byte)'3')
                     throw new InvalidOperationException();
+            }
+        }
+
+        ValueTask SendEngineIOPacketAsync(EngineIOPacket packet)
+        {
+            _engineIOPacketBuffer[0] = (byte)packet.Type;
+
+#if NETSTANDARD2_1
+            var buffer = _engineIOPacketBuffer.AsMemory();
+
+            return _socket.SendAsync(buffer, WebSocketMessageType.Text, true, default);
+#else
+            var buffer = new ArraySegment<byte>(_engineIOPacketBuffer);
+
+            return new ValueTask(_socket.SendAsync(buffer, WebSocketMessageType.Text, true, default));
+#endif
+        }
+        ValueTask SendEngineIOPingProbeAsync()
+        {
+#if NETSTANDARD2_1
+            var buffer = new[] { (byte)'2', (byte)'p', (byte)'r', (byte)'o', (byte)'b', (byte)'e' }.AsMemory();
+
+            return _socket.SendAsync(buffer, WebSocketMessageType.Text, true, default);
+#else
+            var buffer = new ArraySegment<byte>(new[] { (byte)'2', (byte)'p', (byte)'r', (byte)'o', (byte)'b', (byte)'e' });
+
+            return new ValueTask(_socket.SendAsync(buffer, WebSocketMessageType.Text, true, default));
+#endif
+        }
+        async ValueTask<EngineIOPacket> ReceiveEngineIOPacketAsync()
+        {
+#if NETSTANDARD2_1
+            var buffer = _engineIOPacketBuffer.AsMemory();
+#else
+            var buffer = new ArraySegment<byte>(_engineIOPacketBuffer);
+#endif
+
+            var receiveResult = await _socket.ReceiveAsync(buffer, default).ConfigureAwait(false);
+
+            switch ((EngineIOPacketType)_engineIOPacketBuffer[0])
+            {
+                case EngineIOPacketType.Pong when receiveResult.EndOfMessage:
+                    return EngineIOPacket.Pong;
+
+                case EngineIOPacketType.Pong:
+                    var bufferArray = new byte[5];
+#if NETSTANDARD2_1
+                    buffer = bufferArray;
+#else
+                    buffer = new ArraySegment<byte>(bufferArray);
+#endif
+                    receiveResult = await _socket.ReceiveAsync(buffer, default).ConfigureAwait(false);
+
+                    if (IsProbe(bufferArray))
+                        return EngineIOPacket.PongProbe;
+
+                    throw new InvalidOperationException();
+
+                case EngineIOPacketType.Message:
+                    return EngineIOPacket.Message;
+
+                default:
+                    throw new InvalidOperationException();
+            }
+
+            static bool IsProbe(ReadOnlySpan<byte> span)
+            {
+                Span<byte> probe = stackalloc byte[5] { (byte)'p', (byte)'r', (byte)'o', (byte)'b', (byte)'e' };
+
+                return MemoryExtensions.SequenceEqual(span, probe);
             }
         }
 
