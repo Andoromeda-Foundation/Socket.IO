@@ -59,7 +59,20 @@ namespace Andoromeda.Socket.IO.Client
 
         public override void Write(Utf8JsonWriter writer, SocketIOEvent value, JsonSerializerOptions options)
         {
-            throw new NotSupportedException();
+            writer.WriteStartArray();
+            writer.WriteStringValue(value.Event);
+
+            if (!(value.Data is null))
+            {
+                var mappedType = SocketIOEvent.GetMappedType(value.Event);
+
+                if (mappedType is null)
+                    JsonSerializer.Serialize(writer, value.Data);
+                else
+                    JsonSerializer.Serialize(writer, value.Data, mappedType);
+            }
+
+            writer.WriteEndArray();
         }
     }
 }
