@@ -4,8 +4,8 @@ using System.Text.Json.Serialization;
 
 namespace Andoromeda.Socket.IO.Client
 {
-    [JsonConverter(typeof(SocketIOMessageJsonConverter))]
-    public sealed class SocketIOMessage
+    [JsonConverter(typeof(SocketIOEventJsonConverter))]
+    public sealed class SocketIOEvent
     {
         static SortedList<string, Type> _mappedEvents = new SortedList<string, Type>(StringComparer.Ordinal);
 
@@ -13,9 +13,9 @@ namespace Andoromeda.Socket.IO.Client
 
         public object Data { get; internal set; }
 
-        public SocketIOMessage(string @event)
+        public SocketIOEvent(string @event)
         {
-            Event = @event;
+            Event = @event ?? throw new ArgumentNullException(@event);
         }
 
         public static void MapEvent<T>(string @event) =>

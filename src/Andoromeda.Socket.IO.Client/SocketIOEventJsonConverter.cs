@@ -5,17 +5,17 @@ using System.Text.Json.Serialization;
 
 namespace Andoromeda.Socket.IO.Client
 {
-    sealed class SocketIOMessageJsonConverter : JsonConverter<SocketIOMessage>
+    sealed class SocketIOEventJsonConverter : JsonConverter<SocketIOEvent>
     {
-        public override SocketIOMessage Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        public override SocketIOEvent Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
             ThrowIfNot(ref reader, JsonTokenType.StartArray);
 
             reader.Read();
             var @event = reader.GetString();
-            var result = new SocketIOMessage(@event);
+            var result = new SocketIOEvent(@event);
 
-            var mappedType = SocketIOMessage.GetMappedType(@event);
+            var mappedType = SocketIOEvent.GetMappedType(@event);
             object item = null;
             List<object> items = null;
 
@@ -57,7 +57,7 @@ namespace Andoromeda.Socket.IO.Client
                 Utils.ThrowParseException();
         }
 
-        public override void Write(Utf8JsonWriter writer, SocketIOMessage value, JsonSerializerOptions options)
+        public override void Write(Utf8JsonWriter writer, SocketIOEvent value, JsonSerializerOptions options)
         {
             throw new NotSupportedException();
         }

@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace Andoromeda.Socket.IO.Client
 {
-    sealed class WebSocketMessageStream : Stream
+    sealed class SocketIOEventStream : Stream
     {
         private const int BufferSize = 8192;
 
@@ -26,7 +26,7 @@ namespace Andoromeda.Socket.IO.Client
 
         private bool _isEndOfMessage;
 
-        public WebSocketMessageStream(ClientWebSocket socket)
+        public SocketIOEventStream(ClientWebSocket socket)
         {
             _socket = socket;
         }
@@ -154,9 +154,9 @@ namespace Andoromeda.Socket.IO.Client
 
         public struct BufferScope : IDisposable
         {
-            private readonly WebSocketMessageStream _owner;
+            private readonly SocketIOEventStream _owner;
 
-            public BufferScope(WebSocketMessageStream owner)
+            public BufferScope(SocketIOEventStream owner)
             {
                 _owner = owner;
 
