@@ -236,15 +236,6 @@ namespace Andoromeda.Socket.IO.Client
             _socket = socket;
         }
 
-        public void Send(string @event, object data = null) => Send(new SocketIOEvent(@event) { Data = data });
-        public void Send(SocketIOEvent @event) => _sendChannel.Writer.TryWrite(new SocketIOEventPacket(@event));
-
-        void Start()
-        {
-            _ = SendLoop();
-            _ = ReceiveLoop();
-        }
-
         ValueTask SendEngineIOPacketAsync(EngineIOPacket packet)
         {
             _engineIOPacketBuffer[0] = (byte)packet.Type;
@@ -313,6 +304,12 @@ namespace Andoromeda.Socket.IO.Client
 
                 return MemoryExtensions.SequenceEqual(span, probe);
             }
+        }
+
+        void Start()
+        {
+            _ = SendLoop();
+            _ = ReceiveLoop();
         }
 
         async ValueTask SendLoop()
@@ -386,6 +383,9 @@ namespace Andoromeda.Socket.IO.Client
                     throw new InvalidOperationException();
             }
         }
+
+        public void Send(string @event, object data = null) => Send(new SocketIOEvent(@event) { Data = data });
+        public void Send(SocketIOEvent @event) => _sendChannel.Writer.TryWrite(new SocketIOEventPacket(@event));
 
         public async ValueTask CloseAsync()
         {
