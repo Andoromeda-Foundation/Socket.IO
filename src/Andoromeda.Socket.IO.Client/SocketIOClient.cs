@@ -1,7 +1,7 @@
 using System;
 using System.Buffers;
 using System.Buffers.Text;
-using System.IO;
+using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -11,6 +11,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace Andoromeda.Socket.IO.Client
@@ -27,12 +28,20 @@ namespace Andoromeda.Socket.IO.Client
 
         public bool IsConnected { get; private set; }
 
+        private Channel<EngineIOPacket> _sendChannel;
+        private Timer _timer;
+
         public event Action<SocketIOClient> Connected;
 
         public SocketIOClient(string baseUrl, HttpClient httpClient)
         {
             _baseUrl = baseUrl ?? throw new ArgumentNullException(nameof(baseUrl));
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+
+            _sendChannel = Channel.CreateUnbounded<EngineIOPacket>(new UnboundedChannelOptions()
+            {
+                SingleReader = true,
+            });
         }
 
         #region IDisposable implementation
@@ -50,6 +59,8 @@ namespace Andoromeda.Socket.IO.Client
         }
         private void Dispose(bool disposing)
         {
+            _timer?.Dispose();
+            _timer = null;
         }
         #endregion
 
@@ -95,7 +106,12 @@ namespace Andoromeda.Socket.IO.Client
 
             await SendEngineIOPacketAsync(EngineIOPacket.Upgrade).ConfigureAwait(false);
 
-            _ = Keepalive(info.PingInterval);
+            Start();
+
+            _timer = new Timer(delegate
+            {
+                _sendChannel.Writer.TryWrite(EngineIOPacket.Ping);
+            }, null, info.PingInterval, info.PingInterval);
 
             static ConnectionInfo ParseConnectionInfo(ReadOnlySpan<byte> content)
             {
@@ -220,6 +236,11 @@ namespace Andoromeda.Socket.IO.Client
             _socket = socket;
         }
 
+        void Start()
+        {
+            _ = ReceiveLoop();
+        }
+
         public async ValueTask<SocketIOMessage> ReceiveAsync()
         {
             _messageStream.EnsureFinalBlockIsHandled();
@@ -251,31 +272,6 @@ namespace Andoromeda.Socket.IO.Client
 #endif
                 await JsonSerializer.SerializeAsync(_messageStream, array).ConfigureAwait(false);
                 await _messageStream.FlushAsync().ConfigureAwait(false);
-            }
-        }
-
-        async Task Keepalive(int interval)
-        {
-            var array = new byte[1];
-#if NETSTANDARD2_1
-            var buffer = array.AsMemory();
-#else
-            var buffer = new ArraySegment<byte>(array);
-#endif
-
-            while (true)
-            {
-                await Task.Delay(interval).ConfigureAwait(false);
-
-                // Send [Ping]
-                array[0] = (byte)'2';
-                await _socket.SendAsync(buffer, WebSocketMessageType.Text, true, default).ConfigureAwait(false);
-
-                // Receive [Pong]
-                await _socket.ReceiveAsync(buffer, default).ConfigureAwait(false);
-
-                if (array[0] != (byte)'3')
-                    throw new InvalidOperationException();
             }
         }
 
@@ -346,6 +342,20 @@ namespace Andoromeda.Socket.IO.Client
                 Span<byte> probe = stackalloc byte[5] { (byte)'p', (byte)'r', (byte)'o', (byte)'b', (byte)'e' };
 
                 return MemoryExtensions.SequenceEqual(span, probe);
+            }
+        }
+
+        async ValueTask ReceiveLoop()
+        {
+            while (true)
+            {
+                var packet = await ReceiveEngineIOPacketAsync().ConfigureAwait(false);
+
+                if (packet == EngineIOPacket.Pong)
+                {
+                    Debug.WriteLine("[Pong]");
+                    continue;
+                }
             }
         }
 
