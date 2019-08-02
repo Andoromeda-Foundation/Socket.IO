@@ -6,12 +6,18 @@ namespace Andoromeda.Socket.IO.Client.Tests
 {
     public static class ConnectionTests
     {
-        [Fact]
-        public static async Task PollingAndThenWebsocketTest()
-        {
-            using var client = new SocketIOClient("http://localhost:10000/", new HttpClient());
+        static HttpClient _httpClient = new HttpClient();
 
-            await client.ConnectAsync();
+        [Fact]
+        public static Task PollingAndThenWebSocketTest() => TestCore(false);
+        [Fact]
+        public static Task DirectWebSocketTest() => TestCore(true);
+
+        private static async Task TestCore(bool directConnection)
+        {
+            using var client = new SocketIOClient("http://localhost:10000/", _httpClient);
+
+            await client.ConnectAsync(new ConnectionOptions() { NoLongPollingConnection = directConnection });
 
             Assert.True(client.IsConnected);
 
