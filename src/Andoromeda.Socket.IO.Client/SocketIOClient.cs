@@ -2,12 +2,8 @@ using System;
 using System.Buffers;
 using System.Buffers.Text;
 using System.Diagnostics;
-using System.Linq;
-using System.Net;
 using System.Net.Http;
 using System.Net.WebSockets;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Channels;
@@ -30,6 +26,7 @@ namespace Andoromeda.Socket.IO.Client
 
         private Channel<EngineIOPacket> _sendChannel;
         private Timer _timer;
+        private Task _coreIOTask;
 
         public event Action<SocketIOClient> Connected;
         public event Action<SocketIOEvent> EventReceived;
@@ -38,11 +35,6 @@ namespace Andoromeda.Socket.IO.Client
         {
             _baseUrl = baseUrl ?? throw new ArgumentNullException(nameof(baseUrl));
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
-
-            _sendChannel = Channel.CreateUnbounded<EngineIOPacket>(new UnboundedChannelOptions()
-            {
-                SingleReader = true,
-            });
         }
 
         #region IDisposable implementation
@@ -61,7 +53,14 @@ namespace Andoromeda.Socket.IO.Client
         private void Dispose(bool disposing)
         {
             _timer?.Dispose();
+            _eventStream?.Dispose();
+            _socket?.Dispose();
+
+            _socket = null;
+            _eventStream = null;
             _timer = null;
+            _sendChannel = null;
+            _coreIOTask = null;
         }
         #endregion
 
@@ -76,6 +75,11 @@ namespace Andoromeda.Socket.IO.Client
                 info = await EstablishWebsocketConnectionDirectly().ConfigureAwait(false);
 
             _eventStream = new SocketIOEventStream(_socket);
+
+            _sendChannel = Channel.CreateUnbounded<EngineIOPacket>(new UnboundedChannelOptions()
+            {
+                SingleReader = true,
+            });
 
             Start();
 
@@ -234,6 +238,8 @@ namespace Andoromeda.Socket.IO.Client
 #endif
 
             var receiveResult = await _socket.ReceiveAsync(buffer, default).ConfigureAwait(false);
+            if (receiveResult.MessageType == WebSocketMessageType.Close)
+                return null;
 
             switch ((EngineIOPacketType)_engineIOPacketBuffer[0])
             {
@@ -269,13 +275,9 @@ namespace Andoromeda.Socket.IO.Client
             }
         }
 
-        void Start()
-        {
-            _ = SendLoop();
-            _ = ReceiveLoop();
-        }
+        void Start() => _coreIOTask = Task.WhenAll(SendLoop(), ReceiveLoop());
 
-        async ValueTask SendLoop()
+        async Task SendLoop()
         {
             while (true)
             {
@@ -300,17 +302,35 @@ namespace Andoromeda.Socket.IO.Client
                         await JsonSerializer.SerializeAsync(_eventStream, eventPacket.Event).ConfigureAwait(false);
                         await _eventStream.FlushAsync().ConfigureAwait(false);
                     }
-
                     continue;
                 }
+
+                if (packet == EngineIOPacket.SocketIOClose)
+                {
+                    _timer.Dispose();
+                    _sendChannel.Writer.Complete();
+
+#if NETSTANDARD2_1
+                    var buffer = new[] { (byte)'4', (byte)'1' }.AsMemory();
+#else
+                    var buffer = new ArraySegment<byte>(new[] { (byte)'4', (byte)'1' });
+
+#endif
+                    await _socket.SendAsync(buffer, WebSocketMessageType.Text, true, default).ConfigureAwait(false);
+                    return;
+                }
+
+                throw new InvalidOperationException();
             }
         }
 
-        async ValueTask ReceiveLoop()
+        async Task ReceiveLoop()
         {
             while (true)
             {
                 var packet = await ReceiveEngineIOPacketAsync().ConfigureAwait(false);
+                if (packet is null)
+                    return;
 
                 if (packet == EngineIOPacket.Pong)
                 {
@@ -352,16 +372,19 @@ namespace Andoromeda.Socket.IO.Client
 
         public async ValueTask CloseAsync()
         {
-#if NETSTANDARD2_1
-            Memory<byte> buffer = new[] { (byte)'4', (byte)'1' };
-#else
-            var buffer = new ArraySegment<byte>(new[] { (byte)'4', (byte)'1' });
-#endif
+            await _sendChannel.Writer.WriteAsync(EngineIOPacket.SocketIOClose).ConfigureAwait(false);
 
-            await _socket.SendAsync(buffer, WebSocketMessageType.Text, true, default).ConfigureAwait(false);
+            await _coreIOTask.ConfigureAwait(false);
+
             await _socket.CloseAsync(WebSocketCloseStatus.Empty, null, default).ConfigureAwait(false);
 
             IsConnected = false;
+
+            _socket = null;
+            _eventStream = null;
+            _timer = null;
+            _sendChannel = null;
+            _coreIOTask = null;
         }
     }
 }

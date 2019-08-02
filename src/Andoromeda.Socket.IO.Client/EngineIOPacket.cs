@@ -8,6 +8,8 @@
         public static EngineIOPacket Message { get; } = new EngineIOPacket(EngineIOPacketType.Message);
         public static EngineIOPacket Upgrade { get; } = new EngineIOPacket(EngineIOPacketType.Upgrade);
 
+        public static EngineIOPacket SocketIOClose { get; } = new EngineIOPacket(EngineIOPacketType.Message);
+
         public EngineIOPacketType Type { get; }
 
         public EngineIOPacket(EngineIOPacketType type)
