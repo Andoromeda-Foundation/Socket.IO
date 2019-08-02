@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Buffers.Text;
 using System.Diagnostics;
 using System.Linq;
@@ -67,17 +68,26 @@ namespace Andoromeda.Socket.IO.Client
         public ValueTask ConnectAsync() => ConnectAsync(null);
         public async ValueTask ConnectAsync(ConnectionOptions options)
         {
+            ConnectionInfo info;
+
             if (options is null || !options.NoLongPollingConnection)
-                await EstablishNormally().ConfigureAwait(false);
+                info = await EstablishNormally().ConfigureAwait(false);
             else
-                await EstablishWebsocketConnectionDirectly().ConfigureAwait(false);
+                info = await EstablishWebsocketConnectionDirectly().ConfigureAwait(false);
 
             _eventStream = new SocketIOEventStream(_socket);
+
+            Start();
+
+            _timer = new Timer(delegate
+            {
+                _sendChannel.Writer.TryWrite(EngineIOPacket.Ping);
+            }, null, info.PingInterval, info.PingInterval);
 
             IsConnected = true;
             Connected?.Invoke(this);
         }
-        private async ValueTask EstablishNormally()
+        private async ValueTask<ConnectionInfo> EstablishNormally()
         {
             var builder = new UriBuilder(_baseUrl);
 
@@ -106,12 +116,7 @@ namespace Andoromeda.Socket.IO.Client
 
             await SendEngineIOPacketAsync(EngineIOPacket.Upgrade).ConfigureAwait(false);
 
-            Start();
-
-            _timer = new Timer(delegate
-            {
-                _sendChannel.Writer.TryWrite(EngineIOPacket.Ping);
-            }, null, info.PingInterval, info.PingInterval);
+            return info;
 
             static ConnectionInfo ParseConnectionInfo(ReadOnlySpan<byte> content)
             {
@@ -137,94 +142,51 @@ namespace Andoromeda.Socket.IO.Client
             }
         }
 
-        private async ValueTask EstablishWebsocketConnectionDirectly()
+        private async ValueTask<ConnectionInfo> EstablishWebsocketConnectionDirectly()
         {
             var builder = new UriBuilder(_baseUrl)
             {
+                Scheme = "ws",
                 Path = "/socket.io/",
                 Query = "EIO=3&transport=websocket",
             };
-
-            using (var request = new HttpRequestMessage(HttpMethod.Get, builder.Uri))
-            {
-                var (key, expectedAccept) = GenerateWebsocketKeyAndExpectedHash();
-
-                request.Headers.Add("Connection", "Upgrade");
-                request.Headers.Add("Upgrade", "websocket");
-                request.Headers.Add("Sec-Websocket-Version", "13");
-                request.Headers.Add("Sec-Websocket-Key", key);
-                request.Headers.Add("Sec-Websocket-Extensions", "permessage-deflate; client_max_window_bits");
-
-                using var response = await _httpClient.SendAsync(request).ConfigureAwait(false);
-
-                if (response.StatusCode != HttpStatusCode.SwitchingProtocols)
-                    throw new InvalidOperationException();
-
-                var accept = response.Headers.GetValues("Sec-Websocket-Accept").SingleOrDefault();
-                if (accept != expectedAccept)
-                    throw new InvalidOperationException();
-            }
-
-            builder.Scheme = "ws";
             await EstablishWebsocketConnection(builder.Uri).ConfigureAwait(false);
 
+            var array = ArrayPool<byte>.Shared.Rent(8192);
+            try
+            {
 #if NETSTANDARD2_1
-            Memory<byte> buffer = new byte[256];
-            await _socket.ReceiveAsync(buffer, default).ConfigureAwait(false);
+                Memory<byte> buffer = array;
+                var receiveResult = await _socket.ReceiveAsync(buffer, default).ConfigureAwait(false);
 
-            var info = ConnectionInfo.Parse(buffer.Span);
+                var info = ConnectionInfo.Parse(buffer.Span[..receiveResult.Count]);
 #else
-            var buffer = new ArraySegment<byte>(new byte[256]);
-            await _socket.ReceiveAsync(buffer, default).ConfigureAwait(false);
+                var buffer = new ArraySegment<byte>(array);
+                var receiveResult = await _socket.ReceiveAsync(buffer, default).ConfigureAwait(false);
 
-            var info = ConnectionInfo.Parse(buffer);
+                var info = ConnectionInfo.Parse(buffer.AsSpan().Slice(0, receiveResult.Count));
 #endif
 
-            var result = await _socket.ReceiveAsync(buffer, default).ConfigureAwait(false);
-            if (result.Count != 2)
-                throw new InvalidOperationException();
+                receiveResult = await _socket.ReceiveAsync(buffer, default).ConfigureAwait(false);
+                if (receiveResult.Count != 2)
+                    throw new InvalidOperationException();
 
 #if NETSTANDARD2_1
-            if (!Is40(buffer.Span))
+                if (!Is40(buffer.Span))
 #else
-            if (!Is40(buffer))
+                if (!Is40(buffer))
 #endif
-                throw new InvalidOperationException();
+                    throw new InvalidOperationException();
+
+                return info;
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(array);
+            }
 
             static bool Is40(ReadOnlySpan<byte> span) =>
                 span[0] == '4' && span[1] == '0';
-        }
-
-        static (string, string) GenerateWebsocketKeyAndExpectedHash()
-        {
-            var guid = Guid.NewGuid();
-
-#if NETSTANDARD2_1
-            Span<byte> buffer = stackalloc byte[16];
-            guid.TryWriteBytes(buffer);
-
-            var key = Convert.ToBase64String(buffer);
-#else
-            var key = Convert.ToBase64String(guid.ToByteArray());
-#endif
-
-            // GUID source: https://tools.ietf.org/html/rfc6455
-            var contentToHash = key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-
-            using var sha1 = SHA1.Create();
-#if NETSTANDARD2_1
-            Span<byte> contentBuffer = stackalloc byte[Encoding.UTF8.GetByteCount(contentToHash)];
-            Encoding.UTF8.GetBytes(contentToHash, contentBuffer);
-
-            buffer = stackalloc byte[20];
-            sha1.TryComputeHash(contentBuffer, buffer, out _);
-            var hash = Convert.ToBase64String(buffer);
-#else
-            var hashBytes = sha1.ComputeHash(Encoding.UTF8.GetBytes(contentToHash));
-            var hash = Convert.ToBase64String(hashBytes);
-#endif
-
-            return (key, hash);
         }
 
         private async ValueTask EstablishWebsocketConnection(Uri uri)
