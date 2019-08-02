@@ -192,6 +192,7 @@ namespace Andoromeda.Socket.IO.Client
         private async ValueTask EstablishWebsocketConnection(Uri uri)
         {
             var socket = new ClientWebSocket();
+            socket.Options.KeepAliveInterval = TimeSpan.Zero;
 
             await socket.ConnectAsync(uri, default).ConfigureAwait(false);
 
