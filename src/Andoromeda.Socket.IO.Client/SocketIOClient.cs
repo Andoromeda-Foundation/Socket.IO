@@ -31,6 +31,7 @@ namespace Andoromeda.Socket.IO.Client
 
         public event Action<SocketIOClient> Connected;
         public event Action<SocketIOEvent> EventReceived;
+        public event Action<SocketIOClient> Disconnected;
 
         public SocketIOClient(string baseUrl, HttpClient httpClient)
         {
@@ -327,7 +328,7 @@ namespace Andoromeda.Socket.IO.Client
 
         async Task ReceiveLoop()
         {
-            while (true)
+            do
             {
                 var packet = await ReceiveEngineIOPacketAsync().ConfigureAwait(false);
                 if (packet is null)
@@ -342,10 +343,9 @@ namespace Andoromeda.Socket.IO.Client
                 if (packet != EngineIOPacket.Message)
                     throw new InvalidOperationException();
 
-                await ReceiveSocketIOPacketAsync().ConfigureAwait(false);
-            }
+            } while (await ReceiveSocketIOPacketAsync().ConfigureAwait(false));
         }
-        async ValueTask ReceiveSocketIOPacketAsync()
+        async ValueTask<bool> ReceiveSocketIOPacketAsync()
         {
 #if NETSTANDARD2_1
             var buffer = _socketIOPacketTypeBuffer.AsMemory();
@@ -361,7 +361,11 @@ namespace Andoromeda.Socket.IO.Client
                     var @event = await JsonSerializer.DeserializeAsync<SocketIOEvent>(_eventStream).ConfigureAwait(false);
 
                     EventReceived?.Invoke(@event);
-                    break;
+                    return true;
+
+                case SocketIOPacketType.Disconnect:
+                    Disconnected?.Invoke(this);
+                    return false;
 
                 default:
                     throw new InvalidOperationException();
@@ -372,6 +376,22 @@ namespace Andoromeda.Socket.IO.Client
         public void Send(string @event, IList<object> arguments) => Send(new SocketIOEvent(@event) { Arguments = arguments });
         public void Send(string @event, params object[] arguments) => Send(new SocketIOEvent(@event) { Arguments = arguments });
         public void Send(SocketIOEvent @event) => _sendChannel.Writer.TryWrite(new SocketIOEventPacket(@event));
+
+        public Task WaitForServerSideDisconnectAsync()
+        {
+            var tcs = new TaskCompletionSource<object>();
+
+            Disconnected += OnDisconnected;
+
+            return tcs.Task;
+
+            void OnDisconnected(SocketIOClient client)
+            {
+                Disconnected -= OnDisconnected;
+
+                tcs.SetResult(null);
+            }
+        }
 
         public async ValueTask CloseAsync()
         {
