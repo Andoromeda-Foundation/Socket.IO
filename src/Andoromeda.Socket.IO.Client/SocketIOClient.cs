@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Buffers.Text;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Net.Http;
 using System.Net.WebSockets;
@@ -367,7 +368,9 @@ namespace Andoromeda.Socket.IO.Client
             }
         }
 
-        public void Send(string @event, object data = null) => Send(new SocketIOEvent(@event) { Data = data });
+        public void Send(string @event, object argument = null) => Send(new SocketIOEvent(@event) { Argument = argument });
+        public void Send(string @event, IList<object> arguments) => Send(new SocketIOEvent(@event) { Arguments = arguments });
+        public void Send(string @event, params object[] arguments) => Send(new SocketIOEvent(@event) { Arguments = arguments });
         public void Send(SocketIOEvent @event) => _sendChannel.Writer.TryWrite(new SocketIOEventPacket(@event));
 
         public async ValueTask CloseAsync()

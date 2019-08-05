@@ -9,13 +9,14 @@ namespace Andoromeda.Socket.IO.Client
     {
         static SortedList<string, Type> _mappedEvents = new SortedList<string, Type>(StringComparer.Ordinal);
 
-        public string Event { get; }
+        public string Name { get; }
 
-        public object Data { get; internal set; }
+        public object Argument { get; internal set; }
+        public IList<object> Arguments { get; internal set; }
 
-        public SocketIOEvent(string @event)
+        public SocketIOEvent(string name)
         {
-            Event = @event ?? throw new ArgumentNullException(@event);
+            Name = name ?? throw new ArgumentNullException(name);
         }
 
         public static void MapEvent<T>(string @event) =>

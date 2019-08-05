@@ -9,15 +9,16 @@ namespace Andoromeda.Socket.IO.Client
     {
         public override SocketIOEvent Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
-            ThrowIfNot(ref reader, JsonTokenType.StartArray);
+            if (reader.TokenType != JsonTokenType.StartArray)
+                Utils.ThrowParseException();
 
             reader.Read();
             var @event = reader.GetString();
             var result = new SocketIOEvent(@event);
 
             var mappedType = SocketIOEvent.GetMappedType(@event);
-            object item = null;
-            List<object> items = null;
+
+            List<object> arguments = null;
 
             reader.Read();
 
@@ -26,16 +27,16 @@ namespace Andoromeda.Socket.IO.Client
 
             do
             {
-                if (items is null && !(item is null))
-                    items = new List<object>() { item };
+                if (!(result.Argument is null) && arguments is null)
+                    result.Arguments = arguments = new List<object>() { result.Argument };
 
-                if (!(mappedType is null))
-                    item = JsonSerializer.Deserialize(ref reader, mappedType);
-                else
-                    item = JsonSerializer.Deserialize<object>(ref reader);
+                var argument = DeserializeArgument(ref reader, mappedType);
 
-                if (!(items is null))
-                    items.Add(item);
+                if (result.Argument is null)
+                    result.Argument = argument;
+
+                if (!(arguments is null))
+                    arguments.Add(argument);
 
                 reader.Read();
             } while (reader.TokenType != JsonTokenType.EndArray);
@@ -43,36 +44,62 @@ namespace Andoromeda.Socket.IO.Client
             if (reader.Read())
                 throw new InvalidOperationException();
 
-            if (items is null)
-                result.Data = item;
-            else
-                result.Data = items;
-
             return result;
         }
-
-        void ThrowIfNot(ref Utf8JsonReader reader, JsonTokenType tokenType)
+        object DeserializeArgument(ref Utf8JsonReader reader, Type mappedType)
         {
-            if (reader.TokenType != tokenType)
-                Utils.ThrowParseException();
+            if (reader.TokenType == JsonTokenType.StartObject && !(mappedType is null))
+                return JsonSerializer.Deserialize(ref reader, mappedType);
+
+            if (reader.TokenType == JsonTokenType.StartArray)
+            {
+                var arguments = new List<object>();
+
+                do
+                {
+                    arguments.Add(DeserializeArgument(ref reader, mappedType));
+
+                    reader.Read();
+                } while (reader.TokenType != JsonTokenType.EndArray);
+            }
+
+            return JsonSerializer.Deserialize<object>(ref reader);
         }
 
         public override void Write(Utf8JsonWriter writer, SocketIOEvent value, JsonSerializerOptions options)
         {
             writer.WriteStartArray();
-            writer.WriteStringValue(value.Event);
+            writer.WriteStringValue(value.Name);
 
-            if (!(value.Data is null))
+            if (!(value.Argument is null && value.Arguments is null))
             {
-                var mappedType = SocketIOEvent.GetMappedType(value.Event);
+                var mappedType = SocketIOEvent.GetMappedType(value.Name);
 
-                if (mappedType is null)
-                    JsonSerializer.Serialize(writer, value.Data);
+                if (value.Arguments is null)
+                    SerializeArgument(writer, value.Argument, mappedType);
                 else
-                    JsonSerializer.Serialize(writer, value.Data, mappedType);
+                    foreach (var argument in value.Arguments)
+                        SerializeArgument(writer, argument, mappedType);
             }
 
             writer.WriteEndArray();
+        }
+
+        void SerializeArgument(Utf8JsonWriter writer, object argument, Type mappedType)
+        {
+            if (argument is IEnumerable<object> arguments)
+            {
+                writer.WriteStartArray();
+                foreach (var item in arguments)
+                    SerializeArgument(writer, item, mappedType);
+                writer.WriteEndArray();
+                return;
+            }
+
+            if (mappedType is null)
+                JsonSerializer.Serialize(writer, argument);
+            else
+                JsonSerializer.Serialize(writer, argument, mappedType);
         }
     }
 }
