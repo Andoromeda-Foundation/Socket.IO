@@ -48,22 +48,27 @@ namespace Andoromeda.Socket.IO.Client
         }
         object DeserializeArgument(ref Utf8JsonReader reader, Type mappedType)
         {
-            if (reader.TokenType == JsonTokenType.StartObject && !(mappedType is null))
-                return JsonSerializer.Deserialize(ref reader, mappedType);
-
             if (reader.TokenType == JsonTokenType.StartArray)
             {
                 var arguments = new List<object>();
 
-                do
+                reader.Read();
+                while (reader.TokenType != JsonTokenType.EndArray)
                 {
                     arguments.Add(DeserializeArgument(ref reader, mappedType));
-
                     reader.Read();
-                } while (reader.TokenType != JsonTokenType.EndArray);
+                }
+
+                return arguments;
             }
 
-            return JsonSerializer.Deserialize<object>(ref reader);
+            object result;
+            if (reader.TokenType == JsonTokenType.StartObject && !(mappedType is null))
+                result = JsonSerializer.Deserialize(ref reader, mappedType);
+            else
+                result = JsonSerializer.Deserialize<object>(ref reader);
+
+            return result;
         }
 
         public override void Write(Utf8JsonWriter writer, SocketIOEvent value, JsonSerializerOptions options)
