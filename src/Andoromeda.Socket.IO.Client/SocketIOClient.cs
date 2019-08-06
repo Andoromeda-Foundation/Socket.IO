@@ -328,7 +328,7 @@ namespace Andoromeda.Socket.IO.Client
 
         async Task ReceiveLoop()
         {
-            do
+            while (true)
             {
                 var packet = await ReceiveEngineIOPacketAsync().ConfigureAwait(false);
                 if (packet is null)
@@ -343,7 +343,9 @@ namespace Andoromeda.Socket.IO.Client
                 if (packet != EngineIOPacket.Message)
                     throw new InvalidOperationException();
 
-            } while (await ReceiveSocketIOPacketAsync().ConfigureAwait(false));
+                if (!await ReceiveSocketIOPacketAsync().ConfigureAwait(false))
+                    return;
+            }
         }
         async ValueTask<bool> ReceiveSocketIOPacketAsync()
         {
