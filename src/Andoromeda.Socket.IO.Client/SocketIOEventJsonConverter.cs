@@ -1,4 +1,7 @@
 ﻿using System;
+using System.Buffers;
+using System.Buffers.Text;
+using System.Collections;
 using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -50,25 +53,19 @@ namespace Andoromeda.Socket.IO.Client
         {
             if (reader.TokenType == JsonTokenType.StartArray)
             {
-                var arguments = new List<object>();
+                if (mappedType is null)
+                    return JsonSerializer.Deserialize<JsonElement[]>(ref reader);
 
-                reader.Read();
-                while (reader.TokenType != JsonTokenType.EndArray)
-                {
-                    arguments.Add(DeserializeArgument(ref reader, mappedType));
-                    reader.Read();
-                }
+                if (mappedType.IsArray || typeof(IEnumerable).IsAssignableFrom(mappedType))
+                    return JsonSerializer.Deserialize(ref reader, mappedType);
 
-                return arguments;
+                throw new InvalidOperationException("Expected mapped type is array or enumerable type.");
             }
 
-            object result;
             if (reader.TokenType == JsonTokenType.StartObject && !(mappedType is null))
-                result = JsonSerializer.Deserialize(ref reader, mappedType);
-            else
-                result = JsonSerializer.Deserialize<object>(ref reader);
+                return JsonSerializer.Deserialize(ref reader, mappedType);
 
-            return result;
+            return JsonSerializer.Deserialize<object>(ref reader);
         }
 
         public override void Write(Utf8JsonWriter writer, SocketIOEvent value, JsonSerializerOptions options)

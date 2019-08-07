@@ -11,8 +11,8 @@ namespace Andoromeda.Socket.IO.Client
 
         public string Name { get; }
 
-        public object Argument { get; internal set; }
-        public IList<object> Arguments { get; internal set; }
+        public object Argument { get; set; }
+        public IList<object> Arguments { get; set; }
 
         public SocketIOEvent(string name)
         {
