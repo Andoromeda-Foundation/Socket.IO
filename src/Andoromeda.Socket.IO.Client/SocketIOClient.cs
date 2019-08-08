@@ -83,7 +83,7 @@ namespace Andoromeda.Socket.IO.Client
                 SingleReader = true,
             });
 
-            Start();
+            _ = Start();
 
             _timer = new Timer(delegate
             {
@@ -277,7 +277,19 @@ namespace Andoromeda.Socket.IO.Client
             }
         }
 
-        void Start() => _coreIOTask = Task.WhenAll(SendLoop(), ReceiveLoop());
+        async ValueTask Start()
+        {
+            _coreIOTask = Task.WhenAll(SendLoop(), ReceiveLoop());
+
+            try
+            {
+                await _coreIOTask;
+            }
+            catch (WebSocketException)
+            {
+                Disconnected?.Invoke(this);
+            }
+        }
 
         async Task SendLoop()
         {
