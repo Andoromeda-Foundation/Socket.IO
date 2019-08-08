@@ -293,7 +293,7 @@ namespace Andoromeda.Socket.IO.Client
 
         async Task SendLoop()
         {
-            while (true)
+            while (!IsDisposed)
             {
                 var packet = await _sendChannel.Reader.ReadAsync().ConfigureAwait(false);
 
@@ -340,7 +340,7 @@ namespace Andoromeda.Socket.IO.Client
 
         async Task ReceiveLoop()
         {
-            while (true)
+            while (!IsDisposed)
             {
                 var packet = await ReceiveEngineIOPacketAsync().ConfigureAwait(false);
                 if (packet is null)
