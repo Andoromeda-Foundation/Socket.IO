@@ -104,8 +104,10 @@ namespace Andoromeda.Socket.IO.Client
             using (var response = await _httpClient.GetAsync(builder.Uri).ConfigureAwait(false))
             {
                 response.EnsureSuccessStatusCode();
+                
+                var responseContent = await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
 
-                info = ParseConnectionInfo(await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false));
+                info = ParseConnectionInfo(responseContent);
             }
 
             if (!Array.Exists(info.Upgrades, r => r.Equals("websocket", StringComparison.OrdinalIgnoreCase)))
